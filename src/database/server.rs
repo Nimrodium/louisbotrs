@@ -10,6 +10,8 @@ use serde_derive::{Deserialize, Serialize};
 
 use crate::database::user::User;
 
+use super::epoch::now_louis_epoch;
+
 #[derive(Serialize, Deserialize)]
 struct ServerFileInit {
     users: HashMap<u64, User>,
@@ -62,6 +64,8 @@ impl ServerFile {
             .map(|a: ServerFileInit| a.to_server_file(os_path, read_only))
             .map_err(|e| format!("could not parse server file \"{path}\": {e}"))
     }
+    // maybe flush should consume self, then you reinit
+    // or just force ServerFileInit to have explicit lifetimes
     fn flush(&self) -> Result<(), String> {
         if self.read_only {
             Err("attempted to flush a read only file".to_string())
@@ -87,4 +91,27 @@ impl ServerFile {
     fn get_all_users(&self) -> &[&User] {
         self.users.values().collect()
     }
+    fn get_all_reactions(&self) -> &[&str]{
+        self.reactions
+    }
+    fn update_last_day(&mut self,day:LouisEpoch){
+        // self.meta.get_mut("last_day").map(|d|)
+        self.meta.insert("last_day",day);
+    }
+    fn update_last_day_now(&mut self){
+        self.update_last_day(now_louis_epoch())
+    }
+    fn file_name(server_name:&str,year:&str) -> PathBuf{
+        format!("{server_name}_{year}.json")
+    }
+    fn file_path(server_name:&str,year:&str) -> PathBuf{
+        PathBuf::from(server_name).push(Self::file_name(server_name, year))
+    }
+}
+struct ServerFiles{
+    directory:PathBuf,
+    server_name:String,
+    files:HashMap<usize,ServerFile>
+} impl ServerFiles {
+
 }

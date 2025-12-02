@@ -66,7 +66,7 @@ impl User {
                 !(self.days.contains_key(a) && greater_than(a, min) && less_than(a, max))
             })
             .for_each(|(a, b)| {
-                new.days.insert(*a, b.clone());
+                new.days.insert(*a, b);
             });
         new
     }
@@ -78,4 +78,5 @@ impl User {
             .values()
             .fold(0, |acc, d| acc + d.total_reactions_of(reaction))
     }
+
 }
