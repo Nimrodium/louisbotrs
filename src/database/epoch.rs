@@ -18,15 +18,15 @@ pub fn now() -> f64 {
 }
 
 pub fn now_louis_epoch() -> LouisEpoch {
-    unix_to_epoch(Utc::now())
+    unix_to_epoch(&Utc::now())
 }
 
 pub fn epoch_to_unix(e: LouisEpoch) -> UnixEpoch {
     *LOUIS_EPOCH + TimeDelta::days(e as i64)
 }
 
-pub fn unix_to_epoch(u: UnixEpoch) -> LouisEpoch {
-    let diff = u - *LOUIS_EPOCH;
+pub fn unix_to_epoch(u: &UnixEpoch) -> LouisEpoch {
+    let diff = *u - *LOUIS_EPOCH;
     if diff.num_days() > -1 {
         diff.num_days() as LouisEpoch
     } else {

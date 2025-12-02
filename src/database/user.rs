@@ -22,7 +22,7 @@ impl User {
         self.days.get(&day)
     }
     // expects hour to be 0-23
-    fn update_message_count(&mut self, day: LouisEpoch, hour: usize, messages: usize) {
+    pub fn update_message_count(&mut self, day: LouisEpoch, hour: usize, messages: usize) {
         if hour > 23 {
             panic!("Hour invalid {hour} > 23")
         }
@@ -36,7 +36,7 @@ impl User {
         self.days.insert(day, Day::new_with_epoch(day));
         self.days.get_mut(&day).unwrap()
     }
-    fn update_reaction_count(
+    pub fn update_reaction_count(
         &mut self,
         day: LouisEpoch,
         hour: usize,
@@ -66,7 +66,7 @@ impl User {
                 !(self.days.contains_key(a) && greater_than(a, min) && less_than(a, max))
             })
             .for_each(|(a, b)| {
-                new.days.insert(*a, b);
+                new.days.insert(*a, b.clone());
             });
         new
     }
@@ -78,5 +78,4 @@ impl User {
             .values()
             .fold(0, |acc, d| acc + d.total_reactions_of(reaction))
     }
-
 }
