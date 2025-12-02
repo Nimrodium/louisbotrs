@@ -6,8 +6,8 @@ use crate::database::epoch::LouisEpoch;
 
 #[derive(Serialize, Deserialize, Clone)]
 pub struct User {
-    id: u64,
-    name: String,
+    pub id: u64,
+    pub name: String,
     days: HashMap<LouisEpoch, Day>,
 }
 impl User {
@@ -50,7 +50,7 @@ impl User {
                 .increment_reaction(reaction, hour, count);
         }
     }
-    fn combine(&self, other: Self, min: Option<usize>, max: Option<usize>) -> Self {
+    pub fn combine(self, other: Self, min: Option<LouisEpoch>, max: Option<LouisEpoch>) -> Self {
         // iterate over days hashmap, filter days that are in min..max and not in self.days, add those to new return new
         fn less_than(lhs: &&u64, rhs: Option<usize>) -> bool {
             rhs.map(|rhs| **lhs < rhs as u64).unwrap_or(true)
@@ -60,15 +60,24 @@ impl User {
         }
         let mut new = self.clone();
         other
+            .filter(min, max)
             .days
             .iter()
-            .filter(|(a, _)| {
-                !(self.days.contains_key(a) && greater_than(a, min) && less_than(a, max))
-            })
-            .for_each(|(a, b)| {
-                new.days.insert(*a, b.clone());
+            .filter(|(e, _)| !(self.days.contains_key(e)))
+            .for_each(|(e, d)| {
+                new.days.insert(*e, d.clone());
             });
         new
+    }
+    pub fn filter(mut self, min: Option<LouisEpoch>, max: Option<LouisEpoch>) -> Self {
+        self.days = self
+            .days
+            .into_iter()
+            .filter(|(e, _)| {
+                min.map(|m| m <= *e).unwrap_or(true) && max.map(|m| *e <= m).unwrap_or(true)
+            })
+            .collect();
+        self
     }
     fn sum(&self) -> usize {
         self.days.values().fold(0, |acc, d| acc + d.total())

@@ -1,5 +1,5 @@
 use std::{
-    collections::{HashMap, hash_map::Entry},
+    collections::{HashMap, HashSet, hash_map::Entry},
     fs::{self, File},
     io::Write,
     path::{Path, PathBuf},
@@ -9,7 +9,8 @@ use chrono::{Datelike, Timelike};
 use serde_derive::{Deserialize, Serialize};
 
 use crate::database::{
-    epoch::{LouisEpoch, UnixEpoch, unix_to_epoch},
+    epoch::{LouisEpoch, UnixEpoch, epoch_to_unix, unix_to_epoch},
+    server,
     user::User,
 };
 pub type UserUpdate<'a> = (usize, &'a str, usize, &'a [(&'a str, usize)], UnixEpoch);
@@ -20,7 +21,7 @@ use super::epoch::now_louis_epoch;
 struct ServerFileInit {
     users: HashMap<u64, User>,
     reactions: Vec<String>,
-    meta: HashMap<String, u64>,
+    meta: Meta,
 }
 impl ServerFileInit {
     fn from_server_file(from: ServerFile) -> Self {
@@ -40,12 +41,28 @@ impl ServerFileInit {
         }
     }
 }
+#[derive(Serialize, Deserialize, Clone)]
+struct Meta {
+    first_day: u64,
+    last_day: u64,
+}
+impl Meta {
+    fn new(first_day: u64, last_day: u64) -> Self {
+        Self {
+            first_day,
+            last_day,
+        }
+    }
+    fn new_now() -> Self {
+        Self::new(now_louis_epoch(), now_louis_epoch())
+    }
+}
 #[derive(Clone)]
 pub struct ServerFile {
     path: PathBuf,
     users: HashMap<u64, User>,
     reactions: Vec<String>,
-    meta: HashMap<String, u64>,
+    meta: Meta,
     read_only: bool,
 }
 impl ServerFile {
@@ -54,7 +71,7 @@ impl ServerFile {
             path: PathBuf::from(path),
             users: HashMap::new(),
             reactions: Vec::new(),
-            meta: HashMap::new(),
+            meta: Meta::new_now(),
             read_only: false,
         }
     }
@@ -110,7 +127,7 @@ impl ServerFile {
     }
     fn update_last_day(&mut self, day: LouisEpoch) {
         // self.meta.get_mut("last_day").map(|d|)
-        self.meta.insert("last_day".to_string(), day);
+        self.meta.last_day = day;
     }
     fn update_last_day_now(&mut self) {
         self.update_last_day(now_louis_epoch())
@@ -139,6 +156,9 @@ impl ServerFile {
         let user = self.get_or_create_user(user_id, name);
         user.update_reaction_count(unix_to_epoch(&date), date.hour() as usize, reaction, count);
     }
+    fn load_serverfile(server_name: &str, year: usize) -> Result<Self, String> {
+        Self::load(&Self::file_path(server_name, &year.to_string()), false)
+    }
 }
 struct ServerFiles {
     directory: PathBuf,
@@ -166,6 +186,36 @@ impl<'a> ServerFiles {
                 )?,
             );
             Ok(self.files.get_mut(&year).unwrap())
+        }
+    }
+    fn open_server_ro(&'a mut self, year: usize) -> Result<&'a ServerFile, String> {
+        // if self.files.contains_key(&year) {
+        //     Ok(self.files.get(&year).unwrap())
+        // } else {
+        //     self.files.insert(
+        //         year,
+        //         ServerFile::load(
+        //             // ServerFile::file_name(&self.server_name.as_str(), &year.to_string()),
+        //             &ServerFile::file_path(&self.server_name, &year.to_string()),
+        //             false,
+        //         )?,
+        //     );
+        self.open_server_to_database(year);
+        Ok(self.files.get(&year).unwrap())
+    }
+    fn open_server_to_database(&mut self, year: usize) -> Result<(), String> {
+        match self.files.entry(year) {
+            Entry::Occupied(_) => (),
+            Entry::Vacant(vacant_entry) => {
+                vacant_entry.insert(ServerFile::load_serverfile(&self.server_name, year)?);
+            }
+        }
+        Ok(())
+    }
+    fn open_server_owned(&mut self, year: usize) -> Result<ServerFile, String> {
+        match self.files.entry(year) {
+            Entry::Occupied(occupied_entry) => Ok(occupied_entry.get().clone()),
+            Entry::Vacant(vacant_entry) => ServerFile::load_serverfile(&self.server_name, year),
         }
     }
 }
@@ -205,6 +255,54 @@ impl ServerDatabase {
             }
         }
         Ok(())
+    }
+    // might be better to move to be a standalone function which owns its own database
+    pub fn collect_data(
+        // &mut self,
+        database_directory: &Path,
+        server: &str,
+        start: LouisEpoch,
+        end: LouisEpoch,
+    ) -> Result<Vec<User>, String> {
+        // open serverfs and start with current year,
+        // loop get server,
+        //  if server out of range then go to next iter
+        // loop over users, if present in collection buffer combine users
+        // else copy user, filter any days outside min..max
+        // if first day outside range, break. else decrement year and open server
+        //
+        // collects users in specified range across years,
+        // direct reimplementation, try to make more functional later
+        let mut database = ServerFiles::new(database_directory, server);
+        let mut year = epoch_to_unix(end).year() as usize;
+        let mut collected_users: HashMap<usize, User> = HashMap::new();
+        loop {
+            let server = database.open_server_owned(year)?; // clone so that we can consume its data.
+            if server.meta.last_day < start || server.meta.first_day > end {
+                year -= 1;
+                continue;
+            }
+            // iterate over database
+            for (id, user) in server.users.into_iter() {
+                match collected_users.entry(id as usize) {
+                    Entry::Occupied(mut occupied_entry) => {
+                        occupied_entry.insert(occupied_entry.get().clone().combine(
+                            user,
+                            Some(start),
+                            Some(end),
+                        ));
+                    }
+                    Entry::Vacant(vacant_entry) => {
+                        vacant_entry.insert(user.filter(Some(start), Some(end)));
+                    }
+                }
+            }
+            if server.meta.first_day <= start {
+                break Ok(collected_users.into_values().collect());
+            } else {
+                year -= 1;
+            }
+        }
     }
 }
 pub struct BatchCache {

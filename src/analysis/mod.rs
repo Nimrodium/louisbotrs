@@ -6,3 +6,4 @@
  *
  */
 mod color;
+mod plotting;
